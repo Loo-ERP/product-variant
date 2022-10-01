@@ -1,12 +1,19 @@
 # © 2017 Pierrick Brun <pierrick.brun@akretion.com>
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl.html).
 
+import mock
 from lxml import etree
 
-from odoo.tests.common import TransactionCase
+from odoo.exceptions import UserError
+from odoo.tests.common import SavepointCase
 
 
-class TestProductProduct(TransactionCase):
+class TestProductProduct(SavepointCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.product_product_4c = cls.env.ref("product.product_product_4c")
+
     def test_fields_view_get_tree(self):
         product = self.help_create_product()
         product = product.with_context({"search_disable_custom_filters": True})
@@ -103,3 +110,29 @@ class TestProductProduct(TransactionCase):
         self.assertEqual(variants.mapped("active"), [False, False])
         template.write({"active": True})
         self.assertEqual(variants.mapped("active"), [True, True])
+
+    def _remove_combination(self):
+        with mock.patch.object(
+            type(self.env["product.product"]), "unlink", side_effect=UserError
+        ):
+            self.env.ref("product.product_4_attribute_2_value_1").unlink()
+
+    def test_remove_combination(self):
+        self._remove_combination()
+        # check that variant is inactive and combination_deleted is True
+        self.assertFalse(self.product_product_4c.active)
+        self.assertTrue(self.product_product_4c.combination_deleted)
+
+    def test_remove_combination_not_activable(self):
+        self._remove_combination()
+        with self.assertRaises(UserError):
+            self.product_product_4c.active = True
+
+    def test_reactive_combination(self):
+        self._remove_combination()
+        # reactive combination
+        self.env.ref("product.product_4_attribute_2_value_1").ptav_active = True
+        self.product_product_4c.product_tmpl_id._create_variant_ids()
+        # check that variant is active and combination_deleted is False
+        self.assertTrue(self.product_product_4c.active)
+        self.assertFalse(self.product_product_4c.combination_deleted)
